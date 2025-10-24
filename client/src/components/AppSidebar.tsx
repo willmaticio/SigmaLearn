@@ -12,6 +12,7 @@ import {
   SidebarHeader,
   SidebarFooter,
 } from "@/components/ui/sidebar";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 export function AppSidebar() {
   const [location] = useLocation();
@@ -21,13 +22,14 @@ export function AppSidebar() {
   return (
     <Sidebar collapsible="icon">
       <SidebarHeader className="border-b border-sidebar-border">
-        <div className="px-2 py-2">
+        <div className="px-2 py-2 flex items-center justify-between gap-2">
           <Link href="/" className="flex items-center gap-2 hover:opacity-80 transition-opacity" data-testid="link-sidebar-logo">
             <div className="w-8 h-8 rounded-lg bg-sidebar-primary flex items-center justify-center">
               <span className="text-sidebar-primary-foreground font-bold text-sm">Σ</span>
             </div>
             <span className="font-bold text-base">SigmaLearn</span>
           </Link>
+          <ThemeToggle />
         </div>
       </SidebarHeader>
       
