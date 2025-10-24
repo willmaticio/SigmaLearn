@@ -1,0 +1,307 @@
+1) Replit runtime & launcher
+
+Add both files at repo root.
+
+replit.nix
+
+{ pkgs }:
+{
+  deps = [
+    pkgs.python310
+    pkgs.nodejs_20
+    pkgs.openjdk17          # for optional Java bridge
+    pkgs.tesseract          # only used if you enable OCR
+    pkgs.pkg-config
+  ];
+}
+
+
+.replit
+
+# Dev mode: Vite + FastAPI (two processes)
+# For single-port prod run, see the StaticFiles section below.
+run = "bash -lc 'pip install -r server/requirements.txt && cd frontend && npm i && npm run dev & cd .. && uvicorn server.main:app --host 0.0.0.0 --port 8000 --reload'"
+
+# (Optional) If you want a one-port prod run that serves the built frontend:
+# run = "bash -lc 'pip install -r server/requirements.txt && cd frontend && npm i && npm run build && cd .. && python server/run_oneport.py'"
+
+
+Tip: start with the first run (dev), then switch to the single-port script for deployment.
+
+2) Python dependencies
+
+server/requirements.txt
+
+fastapi==0.115.2
+uvicorn[standard]==0.30.6
+sympy==1.13.2
+pydantic==2.9.2
+python-multipart==0.0.9
+
+
+If you’ll try OCR later:
+
+pillow
+pytesseract
+opencv-python
+
+3) Environment toggles (safe defaults)
+
+server/config.py already defines these; expose them to Replit via Secrets (Replit → Tools → Secrets):
+
+CORS_ORIGINS → * (dev) or your deployed domain (prod)
+
+ENABLE_OCR → false
+
+OCR_ENGINE → tesseract (if you flip OCR on)
+
+ENABLE_JAVA → true (if you compile Java modules)
+
+JAVA_CLASSPATH → server/bridge/java_modules
+
+JAVA_HEAP → -Xmx256m
+
+Replit will inject them as environment variables; Pydantic reads them automatically.
+
+4) Single-port production runner (serve frontend via FastAPI)
+
+Create a tiny script to mount the frontend/dist build.
+
+server/run_oneport.py
+
+import os, uvicorn
+from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
+from server.main import app as api_app
+
+app = FastAPI()
+# Mount API under /api
+app.mount("/api", api_app)
+
+# Serve static frontend (built with `npm run build`)
+dist_path = os.path.join(os.path.dirname(__file__), "..", "frontend", "dist")
+app.mount("/", StaticFiles(directory=dist_path, html=True), name="frontend")
+
+if __name__ == "__main__":
+    uvicorn.run("server.run_oneport:app", host="0.0.0.0", port=8000)
+
+
+Build once in Replit shell:
+
+cd frontend && npm i && npm run build && cd ..
+python server/run_oneport.py
+
+5) Frontend → backend wiring
+
+In frontend/.env (or Replit Secrets), set:
+
+VITE_API_BASE=http://localhost:8000/api
+
+
+Your lib/api.ts should read this:
+
+export const API_BASE = import.meta.env.VITE_API_BASE ?? "/api";
+
+6) Initial content so the UI renders nicely
+
+Create at least 2 topics per subject. Example:
+
+content/linear-algebra/eigenvectors.md
+
+---
+title: "Eigenvalues and Eigenvectors"
+subject: "linear-algebra"
+tags: ["spectral-theory","diagonalization"]
+level: "undergraduate"
+---
+**Definition.** For a square matrix \(A\), a nonzero vector \(v\) is an eigenvector if \(A v = \lambda v\) for some scalar \(\lambda\) (an eigenvalue).
+**Key result.** Distinct eigenvalues have linearly independent eigenvectors.
+
+
+content/calculus-1/product-rule.md
+
+---
+title: "Product Rule"
+subject: "calculus-1"
+tags: ["differentiation","rules"]
+level: "undergraduate"
+---
+If \(f, g\) are differentiable, then \((fg)' = f'g + fg'\).
+
+
+content/calculus-2/integration-by-parts.md
+
+---
+title: "Integration by Parts"
+subject: "calculus-2"
+tags: ["integration","techniques"]
+level: "undergraduate"
+---
+\(\displaystyle \int u\,dv = uv - \int v\,du\).
+
+
+content/discrete-math/demorgan.md
+
+---
+title: "De Morgan’s Laws"
+subject: "discrete-math"
+tags: ["logic","boolean-algebra"]
+level: "undergraduate"
+---
+\(\neg(p \land q) \equiv \neg p \lor \neg q\), \(\neg(p \lor q) \equiv \neg p \land \neg q\).
+
+
+Formulas rail
+
+content/_formulas/linear-algebra.md
+content/_formulas/calculus-1.md
+content/_formulas/calculus-2.md
+content/_formulas/discrete-math.md
+
+
+Put short “cheat-sheet” style identities in each.
+
+7) Mock API data (so UI works before backend)
+
+In frontend/lib/api.ts, return a canned response if fetch fails—this makes the UI immediately demoable in Replit:
+
+export async function solve(body: SolveBody): Promise<SolveResponse> {
+  try {
+    const r = await fetch(`${API_BASE}/solve`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    if (!r.ok) throw new Error(await r.text());
+    return await r.json();
+  } catch {
+    return {
+      ok: true,
+      result_latex: "\\frac{d}{dx}[x^2\\sin x] = 2x\\sin x + x^2\\cos x",
+      steps: [
+        { index: 1, rule: "Product Rule: prepare", before_latex: "x^{2} \\sin{x}" },
+        { index: 2, rule: "Product Rule: apply d/dx", after_latex: "2 x \\sin{x} + x^{2} \\cos{x}" }
+      ],
+      warnings: ["Mock response: backend unreachable"]
+    };
+  }
+}
+
+8) Optional Java bridge (for your CS/DS showcase)
+
+Place Java sources in server/bridge/java_modules/.
+
+If you use org.json, drop the jar in server/bridge/java_modules/lib/ (or write a tiny parser).
+
+Compile inside Replit shell:
+
+javac -cp server/bridge/java_modules:server/bridge/java_modules/lib/json-20240303.jar server/bridge/java_modules/MatrixRref.java
+
+
+Set secret ENABLE_JAVA=true.
+
+Test quickly via a request to /api/solve with subject:"la", mode:"rref".
+
+9) Health checks & quick tests
+
+Health endpoint: GET /health (already in main.py)
+Returns { status:"ok", ocr: false, java: true/false }
+
+Quick test calls (Replit Shell):
+
+curl -s localhost:8000/health
+curl -s -X POST localhost:8000/api/solve -H 'content-type: application/json' \
+  -d '{"subject":"calc1","mode":"derivative","query":"x^2 \\sin(x)","options":{"var":"x"}}' | jq .
+curl -s -X POST localhost:8000/api/solve -H 'content-type: application/json' \
+  -d '{"subject":"la","mode":"rref","query":"[[1,2,1],[2,4,0],[3,6,3]]"}' | jq .
+
+10) Git hygiene for Replit
+
+.gitignore (at repo root)
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+.env
+
+# Node
+node_modules/
+frontend/dist/
+
+# OCR / models
+server/ocr/*.pt
+server/ocr/models/
+*.onnx
+
+# Java build
+server/bridge/java_modules/*.class
+server/bridge/java_modules/lib/*.jar
+
+# Replit
+.replit
+.replit-state
+
+11) README & contributor essentials
+
+README.md: 5 blocks
+
+Project overview & goals (subjects, features, licenses: MIT code + CC BY-SA content)
+
+Quick start (Replit run commands)
+
+API overview (endpoints, example cURL)
+
+Content authoring guide (frontmatter schema, KaTeX usage)
+
+Contributing (labels: content, solver-step, bug, good-first-issue)
+
+docs/STYLE_GUIDE.md: notation conventions (e.g., vectors boldface, sets calligraphic, etc.)
+
+12) Print/Export styles
+
+Add print CSS so “Export steps” looks academic:
+
+In frontend/styles/globals.css include:
+
+@media print {
+  .AppShell aside, .AppShell header, .RightRail { display: none !important; }
+  main { width: 100% !important; }
+  .step-card { break-inside: avoid; }
+}
+
+13) Guardrails (good for free tier)
+
+In server/config.py: MAX_INPUT_SIZE=8000, MAX_STEPS=200
+
+Reject matrices > 30×30 with a friendly error.
+
+Subprocess timeout for Java is already 10s (keep it).
+
+14) (Optional) Seed example payloads for QA
+
+server/tests/golden/la_rref_3x3.json
+
+{
+  "subject": "la",
+  "mode": "rref",
+  "query": "[[1,2,1],[2,4,0],[3,6,3]]",
+  "expect_rule_contains": ["Compute RREF"]
+}
+
+
+You can drive a tiny script that loops over golden files and asserts rules appear.
+
+15) Accessibility tweaks
+
+Add the MathLive fallback textarea (already in your frontend plan).
+
+Use KaTeX’s aria-label to expose LaTeX string for screen readers (frontend Math renderer prop).
+
+TL;DR — minimum you should push into Replit today
+
+replit.nix, .replit
+
+server/ (files from the backend plan you’ve got)
+
+frontend/ (scaffold + VITE_API_BASE)
+
+content/ (at least 2 topics per subject + formulas files)
+
+.gitignore, README.md

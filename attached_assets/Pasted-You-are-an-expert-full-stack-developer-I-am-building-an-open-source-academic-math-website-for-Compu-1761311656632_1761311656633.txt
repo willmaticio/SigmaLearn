@@ -1,0 +1,124 @@
+You are an expert full-stack developer.
+I am building an open-source academic math website for Computer Science and Data Science students.
+It focuses on Linear Algebra, Calculus I, Calculus II, and Discrete Math, and should let users research, learn, and solve problems step-by-step — without login.
+
+I want you to:
+
+🧱 1. Project Name & Branding
+
+Propose 3–5 strong academic, open-source-sounding names (e.g., “MathLab 360,” “Vectoria,” “OpenCalc,” “SigmaLearn,” “ProofForge”).
+
+Choose one that best fits a scholarly tone, and set it as the project name in the Replit environment (PROJECT_NAME variable and repo title).
+
+⚙️ 2. Tech Stack Setup
+
+Use these:
+
+Frontend: React + Vite + TypeScript + Tailwind + KaTeX + MathLive + Lunr/FlexSearch
+
+Backend: FastAPI (Python) + SymPy + Uvicorn
+
+Optional Bridge: Java modules via subprocess (Matrix RREF, logic simplifier)
+
+OCR (optional): Tesseract or pix2tex (disabled by default)
+
+Ensure:
+
+replit.nix installs Python 3.10, Node 20, OpenJDK 17, and Tesseract.
+
+.replit launches both frontend (npm run dev) and backend (uvicorn server.main:app …) concurrently.
+
+server/requirements.txt contains all backend dependencies.
+
+🧮 3. Functional Goals
+
+Knowledge Base: Markdown files in /content/<subject>/<topic>.md with KaTeX formulas and examples.
+
+Solver API: /api/solve → returns step-by-step results (SolveResponse) for algebra, calculus, linear algebra, and discrete math.
+
+OCR API: /api/ocr_to_latex → optional image-to-LaTeX.
+
+Frontend UI: academic layout (serif fonts, white / gray background, blue accent #2B6CB0).
+
+Left sidebar → subjects
+
+Top header → search bar
+
+Main area → content & solver panel
+
+Right rail → key formulas / references
+
+Math Input: MathLive box supporting LaTeX and plaintext.
+
+Steps Panel: numbered rules with KaTeX expressions before/after.
+
+Example Bank: sample problems linked to solver.
+
+📁 4. File & Folder Expectations
+
+Create these main directories:
+
+frontend/
+  src/pages/, src/components/, src/lib/
+server/
+  main.py, config.py, schemas.py, router_solve.py, solvers/, bridge/
+content/
+  linear-algebra/, calculus-1/, calculus-2/, discrete-math/, _formulas/
+docs/, tests/
+
+
+Include .gitignore, README.md, and .env.example with sample settings.
+
+🧩 5. Integrations & Behavior
+
+Auto-generate example markdown files (2 per subject).
+
+Mock solver responses so the UI works before backend runs.
+
+Add /health route for readiness.
+
+Make sure frontend reads VITE_API_BASE=http://localhost:8000/api.
+
+If ENABLE_JAVA=true, compile and call Java module MatrixRref for RREF steps.
+
+🧠 6. Deliverables
+
+Working Replit environment that builds and serves both layers.
+
+Sample content visible immediately.
+
+One-click “Run” should start everything.
+
+README includes:
+
+Overview and purpose
+
+Tech stack summary
+
+How to add new topics
+
+Example API calls (curl for derivative and RREF)
+
+License: MIT (code) + CC BY-SA (content)
+
+🧾 7. Final Instructions
+
+When finished, print a clear summary in the Replit console:
+
+✅ Project Ready: [PROJECT_NAME]
+Frontend → http://localhost:5173
+Backend  → http://localhost:8000/docs
+To deploy → run 'python server/run_oneport.py'
+
+
+and confirm that health checks, mock examples, and static markdown pages load.
+
+End of prompt.
+
+When you paste this into Replit’s AI:
+
+It will suggest a project name and initialize both sides.
+
+You can then say “Yes, use that name and generate all files.”
+
+After generation, just click Run — Replit will build and serve the whole academic site automatically.

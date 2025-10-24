@@ -1,0 +1,237 @@
+Build the Frontend (React + Vite + Tailwind + Academic UI)
+
+You are an expert front-end engineer. Build a production-ready frontend for an open-source academic math site that supports Linear Algebra, Calculus I, Calculus II, and Discrete Math. The stack is React + Vite + TypeScript + TailwindCSS + KaTeX + MathLive. No login/auth, fully client-side for content and search. The backend will be FastAPI; do NOT implement backend logic, only consume it via fetch.
+
+High-level goals
+
+Clean, academic look suitable for Comp Sci/Data Sci students.
+
+Knowledge Base (KB) with instant client-side search.
+
+Topic pages with definitions and multiple worked examples.
+
+Per-subject Solver panel that accepts typed math (MathLive) and LaTeX/plain text, and calls backend endpoints for step-by-step solutions and RREF traces, etc.
+
+Optional image upload UI (disabled state if backend OCR is off).
+
+Design system (Academic theme)
+
+Typography: Body: serif (e.g., "Source Serif Pro" or Georgia fallback). UI labels/nav: Inter or system-ui sans. Code/steps: monospace.
+
+Math rendering: KaTeX for speed. All displayed math uses KaTeX.
+
+Color palette (muted):
+
+Background: #F8F9FB
+
+Surface/Card: #FFFFFF
+
+Text Primary: #111827
+
+Text Secondary: #4B5563
+
+Accent (links/buttons): #2B6CB0 (hover: #1E4E8C)
+
+Borders: #E5E7EB
+
+Callouts (info): #EEF2FF
+
+Layout: App shell with a persistent left sidebar (Subjects/Topics), top header with search, main content with max-width ~1100px, right rail for “Key Formulas” or references.
+
+Components use rounded-2xl, soft shadows, generous whitespace.
+
+Accessibility: focus states, skip-to-content link, ARIA labels on search/input, dark-mode ready (but don’t implement dark mode yet—leave tokens).
+
+Pages & routing
+
+Use React Router.
+
+/ Home: brief intro, “Start Learning” cards for each subject, Quick Links to Solver.
+
+/kb Knowledge Base: searchable, filterable list of topics across all subjects. Clicking opens topic detail.
+
+/linear-algebra, /calculus-1, /calculus-2, /discrete-math: each is a subject hub with:
+
+Subject overview
+
+Topic list (card grid)
+
+Solver panel (MathLive input + Submit)
+
+Example bank (curated examples with “Send to Solver” button)
+
+/topic/:slug: topic detail page rendering Markdown content (from /content/**.md) with KaTeX, “Examples” accordion, and “Try It” mini input.
+
+/about minimal project info + license.
+
+Core components
+
+AppShell (Header + Sidebar + Main + RightRail)
+
+SearchBar (global KB search)
+
+MathInput (wrap MathLive; supports LaTeX & plaintext; fallback <textarea> if MathLive not available)
+
+StepsView (renders numbered steps with rule badges, KaTeX expressions before/after)
+
+TopicCard, TopicList, ExampleViewer
+
+Callout (for formulas/theorems)
+
+FileUpload (image upload UI; disabled state with tooltip “OCR off”)
+
+Tag chips for difficulty/subject.
+
+EmptyState and ErrorState
+
+Client-side search
+
+Use Lunr.js (or FlexSearch) to index frontmatter + body text from Markdown in /content/**. Build index at app start and store in memory. Provide instant results in /kb and in the global header search (typeahead dropdown).
+
+Content handling
+
+Load Markdown files from /content/<subject>/<topic>.md with YAML frontmatter:
+
+---
+title: "Eigenvalues and Eigenvectors"
+subject: "linear-algebra"
+tags: ["diagonalization","spectral-theorem"]
+level: "undergraduate"
+---
+
+
+Render Markdown (use a Markdown renderer) + KaTeX for math blocks. Anchor headings for deeplinks.
+
+Solver API integration (assume backend exists)
+
+Create a small lib/api.ts with functions:
+
+solve({ subject, query, mode }): Promise<SolveResponse>
+ocrToLatex(file: File): Promise<{ latex: string }>
+
+
+Types:
+
+type Step = { rule: string; before: string; after: string; note?: string };
+type SolveResponse = { ok: boolean; result_latex: string; steps: Step[]; warnings?: string[] };
+
+
+Endpoints (configurable via VITE_API_BASE):
+
+POST /api/solve JSON {subject: "la|calc1|calc2|discrete", query: string, mode?: string}
+
+POST /api/ocr_to_latex form-data file
+
+UI behaviors
+
+Pressing Enter in MathInput triggers solve.
+
+On success: render StepsView with numbered steps; show final result in a KaTeX-highlighted summary box.
+
+On error: show ErrorState with backend message.
+
+“Send Example to Solver” pre-fills input with example’s expression/LaTeX.
+
+Right rail “Key Formulas”
+
+Subject-specific static callouts loaded from /content/_formulas/<subject>.md
+
+Collapsible sections: Definitions, Identities, Theorems.
+
+File structure (frontend only)
+frontend/
+  index.html
+  vite.config.ts
+  tailwind.config.cjs
+  postcss.config.cjs
+  src/
+    main.tsx
+    App.tsx
+    routes.tsx
+    pages/
+      Home.tsx
+      KnowledgeBase.tsx
+      SubjectHub.tsx        // param: subject
+      TopicDetail.tsx
+      About.tsx
+    components/
+      AppShell.tsx
+      Sidebar.tsx
+      Header.tsx
+      RightRail.tsx
+      SearchBar.tsx
+      MathInput.tsx
+      StepsView.tsx
+      TopicCard.tsx
+      ExampleViewer.tsx
+      Callout.tsx
+      FileUpload.tsx
+      EmptyState.tsx
+      ErrorState.tsx
+    lib/
+      api.ts
+      content.ts            // load and parse markdown + build search index
+      search.ts             // lunr/flexsearch index helpers
+      subjects.ts           // subject metadata (id, label, routes, colors)
+    styles/
+      globals.css
+  public/
+    favicon.svg
+content/
+  linear-algebra/*.md
+  calculus-1/*.md
+  calculus-2/*.md
+  discrete-math/*.md
+  _formulas/*.md
+
+Tailwind + global styles
+
+Set base typography scale, comfortable reading width.
+
+Prose styling for Markdown (use @tailwindcss/typography).
+
+A .math-block class that ensures KaTeX blocks are left-aligned with proper spacing.
+
+Buttons: primary (accent), secondary (outline), subtle (text).
+
+Interactions & polish
+
+Loading skeletons for content and solver results.
+
+Copy-to-clipboard for LaTeX result.
+
+“Export steps to PDF” button (stub; triggers window.print() with print styles for now).
+
+Keyboard shortcuts: / focuses search, g l opens Linear Algebra hub, etc. (optional)
+
+Accessibility & QA
+
+All interactive controls keyboard-navigable.
+
+ARIA for search and math input.
+
+Axe clean (no critical violations).
+
+Basic unit tests for lib/search.ts and StepsView rendering.
+
+Non-goals
+
+Do not implement backend logic; only type definitions and fetch calls.
+
+No authentication, no database.
+
+Deliverables
+
+Fully working React app scaffold with routes/components wired up.
+
+Dummy sample topics (2 per subject) and examples demonstrating the layout.
+
+Mocked API fallback if VITE_API_BASE unset: return a canned SolveResponse so UI is testable.
+
+Finally, print in the console clear instructions for:
+
+npm i and npm run dev
+
+where to set VITE_API_BASE
+
+how to add new Markdown topics and reindex search.

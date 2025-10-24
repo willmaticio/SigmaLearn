@@ -1,0 +1,794 @@
+here’s a complete backend blueprint with production-grade structure, endpoint specs, step-logging strategy, Java ↔ Python bridge, OCR options, tests, and Replit wiring. Everything is free + open source friendly.
+
+Backend Overview
+
+Language: Python 3.10+ (FastAPI + SymPy)
+
+Purpose: Expose a uniform JSON API for
+
+Parsing math input (LaTeX/plain) → SymPy
+
+Solving problems (algebra, calc I/II, linear algebra, discrete)
+
+Returning step-by-step derivations with human-readable rule labels
+
+(Optional) Image → LaTeX via OCR
+
+(Optional) Delegate some algorithms to Java modules (RREF, logic, combinatorics), then unify responses
+
+Hosting target: Replit (single repl), also portable to Render/Railway/VPS
+
+No paid APIs
+
+Folder Layout
+server/
+  main.py                     # FastAPI app, routes, static config
+  config.py                   # env, feature toggles
+  schemas.py                  # Pydantic models
+  router_solve.py             # /api/solve orchestration
+  router_ocr.py               # /api/ocr_to_latex
+  solvers/
+    __init__.py
+    algebra.py                # simplify/solve with steps
+    calculus.py               # diff, integrate, limits, series with steps
+    linear_algebra.py         # rref, eigen, det, nullspace with steps
+    discrete.py               # logic simplify, combinatorics, recurrences
+    utils/
+      parse.py                # latex/plain -> sympy
+      steps.py                # Step logger utilities
+      latex.py                # sympy -> latex helpers
+      matrices.py             # pretty matrices for steps
+  bridge/
+    __init__.py
+    java_bridge.py            # subprocess glue to Java
+    utils.py                  # serialization helpers
+  ocr/
+    __init__.py
+    tesseract.py              # light OCR path
+    pix2tex.py                # optional heavy LaTeX OCR (off by default)
+  tests/
+    unit/
+      test_algebra.py
+      test_calculus.py
+      test_linear_algebra.py
+      test_discrete.py
+    golden/
+      calc_derivative_product.json
+      la_rref_3x3.json
+  requirements.txt
+
+
+Root (project):
+
+/.replit
+/replit.nix
+frontend/...
+content/...
+
+Environment & Feature Toggles
+# server/config.py
+from pydantic import BaseSettings
+
+class Settings(BaseSettings):
+    API_NAME: str = "Academic Math API"
+    API_VERSION: str = "1.0.0"
+    CORS_ORIGINS: str = "*"        # set to your domain in prod
+    ENABLE_OCR: bool = False       # OCR endpoints available?
+    OCR_ENGINE: str = "tesseract"  # or "pix2tex"
+    ENABLE_JAVA: bool = True       # allow Java subprocess bridge
+    JAVA_CLASSPATH: str = "server/bridge/java_modules"
+    JAVA_HEAP: str = "-Xmx256m"    # keep small on free Replit
+    MAX_STEPS: int = 200           # guardrails
+    MAX_INPUT_SIZE: int = 8000     # chars
+
+settings = Settings()
+
+Data Models (Pydantic)
+# server/schemas.py
+from pydantic import BaseModel, Field
+from typing import List, Optional, Literal, Any
+
+Subject = Literal["la","calc1","calc2","discrete"]
+Mode = Literal[
+  "auto","algebra","derivative","integral","limit","series",
+  "rref","eigen","det","nullspace","logic","combinatorics","recurrence"
+]
+
+class Step(BaseModel):
+    index: int
+    rule: str                 # e.g., "Product Rule", "Row Operation: R2 ← R2 - 3R1"
+    before_latex: Optional[str] = None
+    after_latex: Optional[str] = None
+    note: Optional[str] = None
+    meta: dict = Field(default_factory=dict)
+
+class SolveRequest(BaseModel):
+    subject: Subject
+    query: str                # LaTeX or plaintext
+    mode: Mode = "auto"
+    options: dict = Field(default_factory=dict)  # e.g., variable="x"
+
+class SolveResponse(BaseModel):
+    ok: bool
+    result_latex: Optional[str] = None
+    steps: List[Step] = Field(default_factory=list)
+    warnings: List[str] = Field(default_factory=list)
+    errors: List[str] = Field(default_factory=list)
+    elapsed_ms: Optional[int] = None
+
+class OcrResponse(BaseModel):
+    ok: bool
+    latex: Optional[str] = None
+    warnings: List[str] = Field(default_factory=list)
+
+FastAPI App & Routers
+# server/main.py
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from server.config import settings
+from server.router_solve import router as solve_router
+from server.router_ocr import router as ocr_router
+
+app = FastAPI(title=settings.API_NAME, version=settings.API_VERSION)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[settings.CORS_ORIGINS] if settings.CORS_ORIGINS != "*" else ["*"],
+    allow_methods=["*"], allow_headers=["*"], allow_credentials=True
+)
+
+app.include_router(solve_router, prefix="/api")
+if settings.ENABLE_OCR:
+    app.include_router(ocr_router, prefix="/api")
+
+@app.get("/health")
+def health():
+    return {"status":"ok","ocr":settings.ENABLE_OCR,"java":settings.ENABLE_JAVA}
+
+# server/router_solve.py
+import time
+from fastapi import APIRouter, HTTPException
+from server.schemas import SolveRequest, SolveResponse
+from server.solvers import algebra, calculus, linear_algebra, discrete
+from server.solvers.utils.parse import parse_query
+from server.config import settings
+
+router = APIRouter()
+
+@router.post("/solve", response_model=SolveResponse)
+def solve(req: SolveRequest):
+    t0 = time.time()
+    if len(req.query) > settings.MAX_INPUT_SIZE:
+        raise HTTPException(413, "Input too large")
+
+    expr_or_data, parse_warnings = parse_query(req.subject, req.query, req.options)
+
+    # route by subject/mode
+    if req.subject == "la":
+        resp = linear_algebra.dispatch(expr_or_data, req.mode, req.options)
+    elif req.subject in ("calc1","calc2"):
+        resp = calculus.dispatch(expr_or_data, req.mode, req.options)
+    elif req.subject == "discrete":
+        resp = discrete.dispatch(expr_or_data, req.mode, req.options)
+    else:
+        resp = algebra.dispatch(expr_or_data, req.mode, req.options)
+
+    resp.elapsed_ms = int((time.time()-t0)*1000)
+    resp.warnings.extend(parse_warnings)
+    return resp
+
+# server/router_ocr.py
+from fastapi import APIRouter, File, UploadFile, HTTPException
+from server.schemas import OcrResponse
+from server.config import settings
+from server.ocr.tesseract import ocr_to_latex as tess_ocr
+from server.ocr.pix2tex import ocr_to_latex as p2t_ocr
+
+router = APIRouter()
+
+@router.post("/ocr_to_latex", response_model=OcrResponse)
+def ocr_to_latex(file: UploadFile = File(...)):
+    if not settings.ENABLE_OCR:
+        raise HTTPException(501, "OCR disabled")
+    content = file.file.read()
+    if settings.OCR_ENGINE == "pix2tex":
+        latex, warnings = p2t_ocr(content)
+    else:
+        latex, warnings = tess_ocr(content)
+    return OcrResponse(ok=latex is not None, latex=latex, warnings=warnings)
+
+Parsing (LaTeX / Plain) → SymPy
+# server/solvers/utils/parse.py
+from typing import Tuple, Any
+from sympy.parsing.latex import parse_latex
+from sympy.parsing.sympy_parser import parse_expr
+from sympy import Matrix
+
+def parse_query(subject: str, query: str, options: dict) -> Tuple[Any, list[str]]:
+    """
+    Returns (expr_or_struct, warnings)
+    - For matrices: accept LaTeX \\begin{bmatrix} ... or CSV-like "[[1,2],[3,4]]"
+    - For logic: accept plain '(!A & B) | C'
+    """
+    w: list[str] = []
+    q = query.strip()
+
+    # Matrix quick handling (CSV-like)
+    if subject == "la" and (q.startswith("[[") or q.startswith("[") and "]," in q):
+        try:
+            import ast
+            data = ast.literal_eval(q)
+            return Matrix(data), w
+        except Exception as e:
+            w.append(f"Matrix parse warning: {e}")
+
+    # Try LaTeX
+    if any(tok in q for tok in ["\\frac","\\int","\\sum","\\begin{bmatrix}","\\left","\\right","\\log","\\sin","\\cos","\\lim"]):
+        try:
+            return parse_latex(q), w
+        except Exception as e:
+            w.append(f"LaTeX parse warning: {e}")
+
+    # Fallback plain parser
+    try:
+        return parse_expr(q, evaluate=False), w
+    except Exception as e:
+        w.append(f"Plain parse warning: {e}")
+        return q, w  # let downstream handle raw
+
+Step Logger Utilities
+# server/solvers/utils/steps.py
+from server.schemas import Step
+from sympy import srepr
+
+class StepLogger:
+    def __init__(self, max_steps:int=200):
+        self.steps:list[Step] = []
+        self.idx = 1
+        self.max_steps = max_steps
+
+    def add(self, rule:str, before=None, after=None, note:str|None=None, meta:dict|None=None):
+        if len(self.steps) >= self.max_steps: return
+        self.steps.append(Step(index=self.idx, rule=rule,
+                               before_latex=_to_latex(before),
+                               after_latex=_to_latex(after),
+                               note=note, meta=meta or {}))
+        self.idx += 1
+
+def _to_latex(x):
+    from sympy.printing.latex import latex
+    try:
+        if x is None: return None
+        return latex(x)
+    except Exception:
+        return str(x)
+
+Algebra Solver (examples)
+# server/solvers/algebra.py
+from server.schemas import SolveResponse
+from server.solvers.utils.steps import StepLogger
+from sympy import Eq, symbols, solve, expand, factor, simplify
+
+def dispatch(expr, mode, options) -> SolveResponse:
+    if mode == "algebra" or mode == "auto":
+        return solve_algebra(expr, options)
+    return SolveResponse(ok=False, errors=[f"Unsupported mode {mode}"])
+
+def solve_algebra(expr, options):
+    log = StepLogger()
+    warnings, errors = [], []
+    try:
+        # Heuristic: if string includes "=", treat as equation
+        if isinstance(expr, str) and "=" in expr:
+            lhs, rhs = expr.split("=")
+            from sympy.parsing.sympy_parser import parse_expr
+            x = symbols(options.get("var","x"))
+            eq = Eq(parse_expr(lhs), parse_expr(rhs))
+            log.add("Initial Equation", None, eq)
+            s = solve(eq, x, dict=True)
+            return SolveResponse(ok=True, result_latex=str(s), steps=log.steps, warnings=warnings)
+
+        before = expr
+        after = expand(expr)
+        if after != before:
+            log.add("Expand (distributive law)", before, after)
+            before = after
+        after = factor(before)
+        if after != before:
+            log.add("Factor (common factors / patterns)", before, after)
+            before = after
+        after = simplify(before)
+        if after != before:
+            log.add("Simplify (algebraic identities)", before, after)
+            before = after
+        return SolveResponse(ok=True, result_latex=None, steps=log.steps, warnings=warnings)
+    except Exception as e:
+        errors.append(str(e))
+        return SolveResponse(ok=False, steps=log.steps, errors=errors, warnings=warnings)
+
+Calculus Solver (differentiation, integration, limits, series)
+# server/solvers/calculus.py
+from server.schemas import SolveResponse
+from server.solvers.utils.steps import StepLogger
+from sympy import diff, symbols, sin, cos, exp, series, limit
+from sympy.integrals.manualintegrate import manualintegrate, find_substitution
+
+def dispatch(expr, mode, options) -> SolveResponse:
+    if mode in ("auto","derivative"):
+        return do_derivative(expr, options)
+    if mode == "integral":
+        return do_integral(expr, options)
+    if mode == "limit":
+        return do_limit(expr, options)
+    if mode == "series":
+        return do_series(expr, options)
+    return SolveResponse(ok=False, errors=[f"Unsupported mode {mode}"])
+
+def _detect_diff_rule(expr, var):
+    # Very light rule hints
+    from sympy import Mul, Pow
+    if expr.is_Mul: return "Product Rule"
+    if expr.is_Pow and expr.base.has(var) and expr.exp.is_Number: return "Power Rule"
+    if expr.func.__name__ in ("sin","cos","exp","log"): return "Chain Rule"
+    return "Differentiation"
+
+def do_derivative(expr, options):
+    x = symbols(options.get("var","x"))
+    log = StepLogger()
+    try:
+        rule = _detect_diff_rule(expr, x)
+        log.add(f"{rule}: prepare", expr, None)
+        d = diff(expr, x)
+        log.add(f"{rule}: apply d/d{x}", expr, d)
+        return SolveResponse(ok=True, result_latex=None, steps=log.steps)
+    except Exception as e:
+        return SolveResponse(ok=False, steps=log.steps, errors=[str(e)])
+
+def do_integral(expr, options):
+    x = symbols(options.get("var","x"))
+    log = StepLogger()
+    try:
+        # manualintegrate returns a structured result we can walk for steps
+        res = manualintegrate(expr, x)
+        log.add("Integration (manualintegrate)", expr, res)
+        return SolveResponse(ok=True, result_latex=None, steps=log.steps)
+    except Exception as e:
+        return SolveResponse(ok=False, steps=log.steps, errors=[str(e)])
+
+def do_limit(expr, options):
+    x = symbols(options.get("var","x"))
+    point = options.get("point", 0)
+    log = StepLogger()
+    try:
+        log.add(f"Limit: x→{point}", expr, None)
+        val = limit(expr, x, point)
+        log.add("Evaluate limit", expr, val)
+        return SolveResponse(ok=True, result_latex=None, steps=log.steps)
+    except Exception as e:
+        return SolveResponse(ok=False, steps=log.steps, errors=[str(e)])
+
+def do_series(expr, options):
+    x = symbols(options.get("var","x"))
+    order = int(options.get("order", 5))
+    log = StepLogger()
+    try:
+        s = series(expr, x, 0, order)
+        log.add(f"Series expansion (order {order})", expr, s)
+        return SolveResponse(ok=True, result_latex=None, steps=log.steps)
+    except Exception as e:
+        return SolveResponse(ok=False, steps=log.steps, errors=[str(e)])
+
+Linear Algebra (RREF trace, eigen, etc.)
+# server/solvers/linear_algebra.py
+from server.schemas import SolveResponse
+from server.solvers.utils.steps import StepLogger
+from server.config import settings
+from server.bridge.java_bridge import run_java
+from sympy import Matrix, eye, det, factor, symbols
+
+def dispatch(obj, mode, options) -> SolveResponse:
+    if mode in ("auto","rref"):
+        return do_rref(obj, options)
+    if mode == "eigen":
+        return do_eigen(obj, options)
+    if mode == "det":
+        return do_det(obj, options)
+    if mode == "nullspace":
+        return do_nullspace(obj, options)
+    return SolveResponse(ok=False, errors=[f"Unsupported mode {mode}"])
+
+def do_rref(M, options):
+    log = StepLogger()
+    try:
+        if isinstance(M, Matrix):
+            # Native SymPy with custom step tracer (simple: pivot marks only)
+            R, pivots = M.rref()
+            log.add("Compute RREF (SymPy)", M, R, note=f"pivots={pivots}")
+            return SolveResponse(ok=True, steps=log.steps)
+        # If raw or if user opts for Java module:
+        if settings.ENABLE_JAVA:
+            out = run_java("MatrixRref", {"matrix": M.tolist() if hasattr(M,'tolist') else M})
+            # 'out' expected {steps:[{rule,before,after,note}]}
+            for i, st in enumerate(out.get("steps", []), start=1):
+                log.add(st.get("rule","Row Operation"), st.get("before"), st.get("after"), st.get("note"))
+            return SolveResponse(ok=True, steps=log.steps)
+        return SolveResponse(ok=False, errors=["Matrix parse error or Java disabled"])
+    except Exception as e:
+        return SolveResponse(ok=False, steps=log.steps, errors=[str(e)])
+
+def do_eigen(M, options):
+    log = StepLogger()
+    try:
+        A = M if isinstance(M, Matrix) else Matrix(M)
+        log.add("Characteristic polynomial", None, A.charpoly().as_expr())
+        vals = A.eigenvals()
+        log.add("Eigenvalues", None, list(vals.keys()))
+        vecs = A.eigenvects()
+        log.add("Eigenvectors", None, [[v[0], v[2]] for v in vecs])
+        return SolveResponse(ok=True, steps=log.steps)
+    except Exception as e:
+        return SolveResponse(ok=False, steps=log.steps, errors=[str(e)])
+
+def do_det(M, options):
+    log = StepLogger()
+    try:
+        A = M if isinstance(M, Matrix) else Matrix(M)
+        D = det(A)
+        log.add("Determinant", A, D)
+        return SolveResponse(ok=True, steps=log.steps)
+    except Exception as e:
+        return SolveResponse(ok=False, steps=log.steps, errors=[str(e)])
+
+def do_nullspace(M, options):
+    log = StepLogger()
+    try:
+        A = M if isinstance(M, Matrix) else Matrix(M)
+        NS = A.nullspace()
+        log.add("Nullspace basis", A, None, note=str(NS))
+        return SolveResponse(ok=True, steps=log.steps)
+    except Exception as e:
+        return SolveResponse(ok=False, steps=log.steps, errors=[str(e)])
+
+Discrete Math (logic, combinatorics, recurrences)
+# server/solvers/discrete.py
+from server.schemas import SolveResponse
+from server.solvers.utils.steps import StepLogger
+from server.config import settings
+from server.bridge.java_bridge import run_java
+from sympy import symbols, factorial, binomial
+from sympy.logic import simplify_logic
+
+def dispatch(expr, mode, options) -> SolveResponse:
+    if mode in ("auto","logic"):
+        return do_logic(expr, options)
+    if mode == "combinatorics":
+        return do_combinatorics(expr, options)
+    if mode == "recurrence":
+        return do_recurrence(expr, options)
+    return SolveResponse(ok=False, errors=[f"Unsupported mode {mode}"])
+
+def do_logic(expr, options):
+    log = StepLogger()
+    try:
+        # Example: use SymPy to simplify; label common laws approximately
+        before = expr
+        after = simplify_logic(expr, form='cnf')
+        log.add("Logic Simplify (CNF)", before, after)
+        return SolveResponse(ok=True, steps=log.steps)
+    except Exception as e:
+        # Java fallback if desired
+        if settings.ENABLE_JAVA:
+            out = run_java("LogicSimplifier", {"expr": str(expr)})
+            log.add("Java Logic Simplifier", str(expr), out.get("result"))
+            return SolveResponse(ok=True, steps=log.steps, warnings=out.get("warnings",[]))
+        return SolveResponse(ok=False, steps=log.steps, errors=[str(e)])
+
+def do_combinatorics(expr, options):
+    log = StepLogger()
+    try:
+        # Example: compute nCr and log factorial identities
+        n = int(options.get("n", 10)); r = int(options.get("r",3))
+        val = binomial(n,r)
+        log.add("Binomial coefficient", None, val, note=f"{n} choose {r}")
+        return SolveResponse(ok=True, steps=log.steps)
+    except Exception as e:
+        return SolveResponse(ok=False, steps=log.steps, errors=[str(e)])
+
+def do_recurrence(expr, options):
+    log = StepLogger()
+    try:
+        from sympy import Function, Eq
+        from sympy.solvers.recurr import rsolve
+        n = symbols('n')
+        # Expect Eq(a(n+1), a(n) + a(n-1)) form from parse, otherwise stub
+        sol = rsolve(expr, symbols('a')(n))
+        log.add("Solve linear recurrence", expr, sol)
+        return SolveResponse(ok=True, steps=log.steps)
+    except Exception as e:
+        return SolveResponse(ok=False, steps=log.steps, errors=[str(e)])
+
+Java Bridge (optional but recommended for your CS showcase)
+
+Python → Java (subprocess):
+
+# server/bridge/java_bridge.py
+import json, subprocess, tempfile, os
+from server.config import settings
+
+def run_java(class_name: str, payload: dict) -> dict:
+    """
+    Launch a Java class (with main) that reads JSON from stdin and writes JSON to stdout.
+    """
+    cmd = ["java", settings.JAVA_HEAP, "-cp", settings.JAVA_CLASSPATH, class_name]
+    try:
+        p = subprocess.run(cmd, input=json.dumps(payload), text=True,
+                           capture_output=True, timeout=10)
+        if p.returncode != 0:
+            return {"error":"java_failed","stderr":p.stderr}
+        return json.loads(p.stdout or "{}")
+    except Exception as e:
+        return {"error": str(e)}
+
+
+Example Java module (RREF with step logging skeleton):
+
+// server/bridge/java_modules/MatrixRref.java
+import java.io.*;
+import java.util.*;
+import org.json.*;
+
+public class MatrixRref {
+  public static void main(String[] args) throws Exception {
+    // Read JSON from stdin
+    BufferedReader br = new BufferedReader(new InputStreamReader(System.in));
+    StringBuilder sb = new StringBuilder(); String line;
+    while ((line = br.readLine()) != null) sb.append(line);
+    JSONObject input = new JSONObject(sb.toString());
+    JSONArray rows = input.getJSONArray("matrix");
+    int m = rows.length(), n = rows.getJSONArray(0).length();
+    double[][] A = new double[m][n];
+    for (int i=0;i<m;i++){
+      JSONArray r = rows.getJSONArray(i);
+      for (int j=0;j<n;j++) A[i][j]=r.getDouble(j);
+    }
+    JSONArray steps = new JSONArray();
+    int lead = 0;
+    for (int r=0; r<m; r++) {
+      if (n <= lead) break;
+      int i = r;
+      while (A[i][lead] == 0) {
+        i++; if (i==m){ i = r; lead++; if (n==lead) { lead--; break; } }
+      }
+      // swap
+      if (i != r){ swap(A,i,r); steps.put(step("Swap rows", A)); }
+
+      // scale
+      double lv = A[r][lead];
+      if (lv != 0){
+        for (int j=0;j<n;j++) A[r][j] /= lv;
+        steps.put(step("Scale row to make pivot 1", A));
+      }
+
+      // eliminate other rows
+      for (int i2=0;i2<m;i2++){
+        if (i2 != r){
+          double lv2 = A[i2][lead];
+          if (lv2 != 0){
+            for (int j=0;j<n;j++) A[i2][j] -= lv2 * A[r][j];
+            steps.put(step("Eliminate column entries", A));
+          }
+        }
+      }
+      lead++;
+    }
+    JSONObject out = new JSONObject();
+    out.put("steps", steps);
+    System.out.print(out.toString());
+  }
+
+  static void swap(double[][] A, int i, int j){
+    double[] tmp = A[i]; A[i]=A[j]; A[j]=tmp;
+  }
+  static JSONObject step(String rule, double[][] A){
+    JSONObject s = new JSONObject();
+    s.put("rule", rule);
+    s.put("after", matrixToLatex(A));
+    return s;
+  }
+  static String matrixToLatex(double[][] A){
+    StringBuilder sb = new StringBuilder("\\begin{bmatrix}");
+    for (int i=0;i<A.length;i++){
+      for (int j=0;j<A[0].length;j++){
+        sb.append(A[i][j]); if (j<A[0].length-1) sb.append(" & ");
+      }
+      sb.append(i<A.length-1 ? " \\\\ " : "");
+    }
+    sb.append("\\end{bmatrix}");
+    return sb.toString();
+  }
+}
+
+
+You can add LogicSimplifier.java, Combinatorics.java similarly: read JSON, compute, output JSON with steps.
+
+Compile on Replit (once):
+
+javac -cp server/bridge/java_modules/lib/json-20240303.jar \
+  server/bridge/java_modules/MatrixRref.java
+
+
+(You can also use a simple lightweight JSON lib or write minimal parsing yourself.)
+
+OCR (optional, free)
+Tesseract path (lightweight, text-biased)
+# server/ocr/tesseract.py
+from typing import Tuple
+import tempfile, subprocess, os
+
+def ocr_to_latex(image_bytes: bytes) -> Tuple[str|None, list[str]]:
+    # Tesseract won't produce LaTeX; it yields text. Return as-is for simple expressions.
+    warnings=[]
+    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
+        f.write(image_bytes); path=f.name
+    out = subprocess.run(["tesseract", path, "stdout", "--psm", "6"],
+                         capture_output=True, text=True)
+    os.remove(path)
+    if out.returncode != 0:
+        warnings.append(out.stderr)
+        return None, warnings
+    text = out.stdout.strip()
+    # naive conversion hints (replace ^ with **, etc.) can be added
+    return text, warnings
+
+pix2tex (heavy, OSS LaTeX OCR) — off by default on free Replit
+
+Requires PyTorch + model weights; document how to enable behind a flag.
+
+In pix2tex.py, load model lazily; if OOM/timeouts, return warning.
+
+Requirements
+
+server/requirements.txt
+
+fastapi==0.115.2
+uvicorn[standard]==0.30.6
+sympy==1.13.2
+python-multipart==0.0.9
+pydantic==2.9.2
+
+
+(If you enable OCR/pix2tex add: pillow, opencv-python, pytesseract, torch, transformers, etc.)
+
+Replit Setup
+
+replit.nix
+
+{ pkgs }:
+{
+  deps = [
+    pkgs.python310
+    pkgs.nodejs_20
+    pkgs.openjdk17
+    pkgs.tesseract
+    pkgs.pkg-config
+  ];
+}
+
+
+.replit
+
+run = "bash -lc 'pip install -r server/requirements.txt && uvicorn server.main:app --host 0.0.0.0 --port 8000'"
+
+
+If you want single-port hosting (serve built frontend via FastAPI StaticFiles), mount it under / and keep API under /api/*.
+
+CORS & Security
+
+Lock CORS_ORIGINS to your domain once deployed.
+
+Size limits enforced (MAX_INPUT_SIZE, MAX_STEPS).
+
+Timeouts on Java subprocess (10s).
+
+OCR disabled by default.
+
+Don’t persist uploaded images unless user opts-in.
+
+Example cURL Calls
+
+Derivative
+
+curl -X POST http://localhost:8000/api/solve \
+  -H 'Content-Type: application/json' \
+  -d '{"subject":"calc1","mode":"derivative","query":"\\sin(x) x^2","options":{"var":"x"}}'
+
+
+RREF (matrix)
+
+curl -X POST http://localhost:8000/api/solve \
+  -H 'Content-Type: application/json' \
+  -d '{"subject":"la","mode":"rref","query":"[[1,2,1],[2,4,0],[3,6,3]]"}'
+
+
+Logic Simplify
+
+curl -X POST http://localhost:8000/api/solve \
+  -H 'Content-Type: application/json' \
+  -d '{"subject":"discrete","mode":"logic","query":"(A & !A) | (A & B)"}'
+
+Step Quality Strategy (important)
+
+SymPy often computes directly. To show human-readable steps:
+
+Differentiation: Detect structure first (product/chain/quotient/power). Add a “prepare” step with identified rule, then show application. For sums, log linearity: d(f+g)=df+dg.
+
+Integration: Always use manualintegrate. Walk the returned rule tree; label branches: u-substitution, integration by parts, trig identity, partial fractions. (You can inspect res.structure in older SymPy or pattern-match on node types.)
+
+RREF: Log every row operation: swap/scale/add. Show intermediate matrices (as LaTeX).
+
+Eigen: Show char poly → factorization → eigenvalues → solve (A−λI)v=0 (list basis vectors).
+
+Limits: Try algebraic simplification; detect 0/0 → apply l’Hôpital (guard loop count).
+
+Series: record center/order; show first k terms + big-O.
+
+Testing (PyTest)
+
+Example unit test:
+
+# server/tests/unit/test_calculus.py
+from fastapi.testclient import TestClient
+from server.main import app
+
+client = TestClient(app)
+
+def test_derivative_product_rule():
+    r = client.post("/api/solve", json={
+        "subject":"calc1","mode":"derivative",
+        "query":"x^2 * sin(x)","options":{"var":"x"}
+    })
+    data = r.json()
+    assert data["ok"] is True
+    rules = [s["rule"] for s in data["steps"]]
+    assert any("Product Rule" in rr for rr in rules)
+
+
+Add golden files for deterministic inputs → expected step sequences.
+
+Performance & Limits (Replit free)
+
+Favor Python SymPy path; Java bridge only for demonstrators or when you want to showcase CS algorithms.
+
+Keep matrices ≤ 30×30 on free tier; reject larger with helpful error.
+
+Enforce timeouts (subprocess + SymPy long ops).
+
+Optional caching (LRU) for identical requests if you see repeats.
+
+Documentation Hints (README, API docs)
+
+Auto docs at /docs (FastAPI Swagger).
+
+Include examples per subject.
+
+Document optional features (OCR, Java) with a flag matrix:
+
+Default: SymPy only, OCR off
+
+Enable Java: set ENABLE_JAVA=true, compile modules
+
+Enable OCR: set ENABLE_OCR=true, OCR_ENGINE=tesseract|pix2tex
+
+What to Implement Next (copy/paste tasks)
+
+Drop these files in (main.py, config.py, schemas.py, routers, utils).
+
+Run: pip install -r server/requirements.txt && uvicorn server.main:app --reload.
+
+Wire frontend to VITE_API_BASE=http://localhost:8000.
+
+(Optional) Java: add MatrixRref.java, compile, set ENABLE_JAVA=true.
+
+Expand calculus steps by walking manualintegrate rule tree for labelled sub-steps.
+
+Add export endpoint /api/export/steps that returns LaTeX or PDF (nice academic touch).
