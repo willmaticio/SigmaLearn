@@ -5,6 +5,7 @@ import { ErrorState } from "@/components/ErrorState";
 import { LoadingSkeleton } from "@/components/LoadingSkeleton";
 import { MathInput } from "@/components/MathInput";
 import { StepsView } from "@/components/StepsView";
+import { ExportPDF } from "@/components/ExportPDF";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
@@ -29,6 +30,7 @@ export default function TopicDetail() {
   const [query, setQuery] = useState("");
   const [solving, setSolving] = useState(false);
   const [solution, setSolution] = useState<SolveResponse | null>(null);
+  const [solvedQuery, setSolvedQuery] = useState<string>("");
 
   useEffect(() => {
     async function load() {
@@ -47,6 +49,7 @@ export default function TopicDetail() {
   const handleSolve = async () => {
     if (!query.trim() || !topic) return;
     
+    const currentQuery = query.trim();
     setSolving(true);
     setSolution(null);
     
@@ -54,12 +57,13 @@ export default function TopicDetail() {
       const subject = SUBJECT_METADATA[topic.frontmatter.subject];
       const response = await solve({
         subject: subject.key,
-        query: query.trim(),
+        query: currentQuery,
         mode: "auto",
       });
       
       if (response.ok) {
         setSolution(response);
+        setSolvedQuery(currentQuery);
       }
     } catch (err) {
       console.error("Solve error:", err);
@@ -159,7 +163,16 @@ export default function TopicDetail() {
             )}
             
             {solution && !solving && (
-              <StepsView steps={solution.steps} result={solution.result_latex} />
+              <div className="space-y-4">
+                <div className="flex justify-end">
+                  <ExportPDF 
+                    solution={solution} 
+                    topicTitle={topic.frontmatter.title}
+                    query={solvedQuery}
+                  />
+                </div>
+                <StepsView steps={solution.steps} result={solution.result_latex} />
+              </div>
             )}
           </div>
         </Card>
