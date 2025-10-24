@@ -1,5 +1,35 @@
 import { Topic, TopicFrontmatter } from "@shared/schema";
-import matter from "gray-matter";
+
+// Simple frontmatter parser for browser (no Buffer dependency)
+function parseFrontmatter(text: string): { data: Record<string, any>; content: string } {
+  const match = text.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
+  if (!match) return { data: {}, content: text };
+  
+  const [, frontmatterText, content] = match;
+  const data: Record<string, any> = {};
+  
+  frontmatterText.split('\n').forEach(line => {
+    const colonIndex = line.indexOf(':');
+    if (colonIndex > 0) {
+      const key = line.slice(0, colonIndex).trim();
+      let value: any = line.slice(colonIndex + 1).trim();
+      
+      // Remove quotes
+      if (value.startsWith('"') && value.endsWith('"')) {
+        value = value.slice(1, -1);
+      }
+      
+      // Parse arrays
+      if (value.startsWith('[') && value.endsWith(']')) {
+        value = value.slice(1, -1).split(',').map((v: string) => v.trim().replace(/"/g, ''));
+      }
+      
+      data[key] = value;
+    }
+  });
+  
+  return { data, content };
+}
 
 // In a real implementation, this would load from /content directory
 // For now, we'll provide sample topics that can be expanded
@@ -263,7 +293,7 @@ export async function loadTopic(slug: string): Promise<Topic | null> {
   const content = SAMPLE_TOPICS[slug];
   if (!content) return null;
 
-  const { data, content: markdownContent } = matter(content);
+  const { data, content: markdownContent } = parseFrontmatter(content);
   
   return {
     slug,
@@ -277,7 +307,7 @@ export async function loadAllTopics(): Promise<Topic[]> {
   const topics: Topic[] = [];
   
   for (const [slug, content] of Object.entries(SAMPLE_TOPICS)) {
-    const { data, content: markdownContent } = matter(content);
+    const { data, content: markdownContent } = parseFrontmatter(content);
     topics.push({
       slug,
       frontmatter: data as TopicFrontmatter,

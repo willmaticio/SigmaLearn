@@ -31,9 +31,15 @@ export default function TopicDetail() {
 
   useEffect(() => {
     async function load() {
-      if (!slug) return;
+      if (!slug) {
+        console.log("TopicDetail: No slug provided");
+        setLoading(false);
+        return;
+      }
+      console.log("TopicDetail: Loading topic with slug:", slug);
       setLoading(true);
       const loadedTopic = await loadTopic(slug);
+      console.log("TopicDetail: Loaded topic:", loadedTopic);
       setTopic(loadedTopic);
       setLoading(false);
     }

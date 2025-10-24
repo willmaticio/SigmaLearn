@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
-import { Calculator, Type, Function } from "lucide-react";
+import { Calculator, Type, Sigma } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import "mathlive";
 
@@ -88,7 +88,7 @@ export function MathInput({
             Plain Text
           </TabsTrigger>
           <TabsTrigger value="latex" data-testid="tab-latex">
-            <Function className="h-4 w-4 mr-2" />
+            <Sigma className="h-4 w-4 mr-2" />
             LaTeX
           </TabsTrigger>
         </TabsList>
