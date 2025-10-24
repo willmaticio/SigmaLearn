@@ -1,6 +1,6 @@
 import { Link, useLocation } from "wouter";
 import { ALL_SUBJECTS, getSubjectIcon } from "@/lib/subjects";
-import { Home, BookOpen } from "lucide-react";
+import { Home, BookOpen, TrendingUp } from "lucide-react";
 import {
   Sidebar,
   SidebarContent,
@@ -51,6 +51,15 @@ export function AppSidebar() {
                 <Link href="/kb" data-testid="link-sidebar-kb">
                   <BookOpen className="h-4 w-4" />
                   <span>Knowledge Base</span>
+                </Link>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+            
+            <SidebarMenuItem>
+              <SidebarMenuButton asChild isActive={isActive("/visualizations")}>
+                <Link href="/visualizations" data-testid="link-sidebar-visualizations">
+                  <TrendingUp className="h-4 w-4" />
+                  <span>Visualizations</span>
                 </Link>
               </SidebarMenuButton>
             </SidebarMenuItem>

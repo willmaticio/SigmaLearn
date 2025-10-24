@@ -8,6 +8,7 @@ import Home from "@/pages/Home";
 import KnowledgeBase from "@/pages/KnowledgeBase";
 import SubjectHub from "@/pages/SubjectHub";
 import TopicDetail from "@/pages/TopicDetail";
+import Visualizations from "@/pages/Visualizations";
 import About from "@/pages/About";
 import NotFound from "@/pages/not-found";
 
@@ -16,6 +17,7 @@ function Router() {
     <Switch>
       <Route path="/" component={Home} />
       <Route path="/kb" component={KnowledgeBase} />
+      <Route path="/visualizations" component={Visualizations} />
       <Route path="/about" component={About} />
       <Route path="/linear-algebra" component={SubjectHub} />
       <Route path="/calculus-1" component={SubjectHub} />
