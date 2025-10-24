@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useRoute, Link } from "wouter";
+import { useLocation, Link } from "wouter";
 import { AppShell } from "@/components/AppShell";
 import { ErrorState } from "@/components/ErrorState";
 import { LoadingSkeleton } from "@/components/LoadingSkeleton";
@@ -20,8 +20,9 @@ import rehypeKatex from "rehype-katex";
 import "katex/dist/katex.min.css";
 
 export default function TopicDetail() {
-  const [match, params] = useRoute("/topic/:slug*");
-  const slug = params?.slug;
+  const [location] = useLocation();
+  // Extract slug from URL: /topic/subject/topic-name -> subject/topic-name
+  const slug = location.startsWith("/topic/") ? location.slice(7) : "";
   
   const [topic, setTopic] = useState<Topic | null>(null);
   const [loading, setLoading] = useState(true);
@@ -32,14 +33,11 @@ export default function TopicDetail() {
   useEffect(() => {
     async function load() {
       if (!slug) {
-        console.log("TopicDetail: No slug provided");
         setLoading(false);
         return;
       }
-      console.log("TopicDetail: Loading topic with slug:", slug);
       setLoading(true);
       const loadedTopic = await loadTopic(slug);
-      console.log("TopicDetail: Loaded topic:", loadedTopic);
       setTopic(loadedTopic);
       setLoading(false);
     }

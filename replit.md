@@ -11,6 +11,13 @@ SigmaLearn is an open-source academic mathematics platform designed for Computer
 
 ## Recent Changes
 
+### 2025-10-24: Critical Architecture Fixes
+- **Fixed MathLive Integration**: Replaced textarea with actual `<math-field>` element for rich LaTeX input
+- **Fixed Sidebar Navigation**: Migrated to shadcn SidebarProvider/AppSidebar primitives with collapsible icon mode
+- **Fixed DOM Structure**: Removed nested anchor tags from navigation components
+- **Fixed Browser Compatibility**: Created custom frontmatter parser to replace gray-matter (eliminated Node.js Buffer dependency)
+- **Status**: MVP complete with all core functionality working
+
 ### 2025-01-24: Initial Development
 - Created comprehensive React frontend with academic design theme
 - Implemented all core components: Home, Knowledge Base, Subject Hubs, Topic Details

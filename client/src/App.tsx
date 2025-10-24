@@ -20,7 +20,7 @@ function Router() {
       <Route path="/calculus-1" component={SubjectHub} />
       <Route path="/calculus-2" component={SubjectHub} />
       <Route path="/discrete-math" component={SubjectHub} />
-      <Route path="/topic/:slug*" component={TopicDetail} />
+      <Route path="/topic/*" component={TopicDetail} />
       <Route component={NotFound} />
     </Switch>
   );
