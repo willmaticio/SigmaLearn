@@ -11,21 +11,25 @@ SigmaLearn is an open-source academic mathematics platform designed for Computer
 
 ## Recent Changes
 
+### 2025-10-24: Next-Phase Features & Backend Enhancements
+- **Dark Mode**: Implemented theme toggle with localStorage persistence, ThemeProvider integration, and academic color palette variations
+- **PDF Export**: Added jspdf integration for exporting step-by-step solutions; fixed critical bug with query state persistence
+- **Interactive Visualizations**: Built FunctionPlotter component using Plotly.js with security fix (replaced `new Function()` with mathjs parser)
+- **Advanced Calculus Backend**: Enhanced calculus solvers with:
+  - ODE (Ordinary Differential Equations) support using SymPy's dsolve
+  - Enhanced derivative solver with simplification steps
+  - Enhanced integral solver with definite integral support and sum rule detection
+  - Series expansion (Taylor/Maclaurin) support
+  - All solvers use detailed step-by-step logging
+- **Status**: All phase-1 features complete; Python backend ready for deployment (optional)
+
 ### 2025-10-24: Critical Architecture Fixes
 - **Fixed MathLive Integration**: Replaced textarea with actual `<math-field>` element for rich LaTeX input
 - **Fixed Sidebar Navigation**: Migrated to shadcn SidebarProvider/AppSidebar primitives with collapsible icon mode
 - **Fixed DOM Structure**: Removed nested anchor tags from navigation components
 - **Fixed Browser Compatibility**: Created custom frontmatter parser to replace gray-matter (eliminated Node.js Buffer dependency)
+- **Fixed Security Issue**: Replaced unsafe `new Function()` with mathjs for safe expression evaluation in FunctionPlotter
 - **Status**: MVP complete with all core functionality working
-
-### 2025-01-24: Initial Development
-- Created comprehensive React frontend with academic design theme
-- Implemented all core components: Home, Knowledge Base, Subject Hubs, Topic Details
-- Built interactive solver panel with MathLive input support
-- Set up client-side search using Lunr.js
-- Configured academic color palette (#F8F9FB background, #2B6CB0 accent)
-- Added 8 sample topics (2 per subject) with KaTeX rendering
-- Implemented responsive layout with sidebar navigation and right rail formulas
 
 ## Project Architecture
 

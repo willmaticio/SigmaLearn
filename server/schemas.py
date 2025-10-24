@@ -9,6 +9,7 @@ Mode = Literal[
     "integral",
     "limit",
     "series",
+    "ode",
     "rref",
     "eigen",
     "det",
